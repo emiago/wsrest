@@ -14,7 +14,7 @@ import (
 type httprequest struct {
 	Method   string
 	Resource string
-	Code     HttpCode
+	Code     int
 }
 
 func TestParseRequest(t *testing.T) {

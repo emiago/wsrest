@@ -10,20 +10,18 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
-type HttpCode int
-
 type Messenger interface {
 	GetMethod() string
 	GetResource() string
-	SetCode(HttpCode)
+	SetCode(int)
 }
 
 type Request struct {
-	RequestId string   `json:"requestid"`
-	Method    string   `json:"method"`
-	Resource  string   `json:"resource"`
-	Code      HttpCode `json:"code"`
-	Data      []byte   `json:"data,ommitempty"`
+	RequestId string `json:"requestid"`
+	Method    string `json:"method"`
+	Resource  string `json:"resource"`
+	Code      int    `json:"code"`
+	Data      []byte `json:"data,ommitempty"`
 }
 
 func NewRequest(method string, resource string, data interface{}) (*Request, error) {
@@ -107,11 +105,11 @@ func (cr *Request) GetPath() string {
 	return u.Path
 }
 
-func (cr *Request) GetCode() HttpCode {
+func (cr *Request) GetCode() int {
 	return cr.Code
 }
 
-func (cr *Request) SetCode(c HttpCode) {
+func (cr *Request) SetCode(c int) {
 	cr.Code = c
 }
 

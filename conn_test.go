@@ -4,6 +4,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -94,7 +96,7 @@ func TestRequestResponse(t *testing.T) {
 
 	h := http.NewServeMux()
 	h.Handle("/", &restHandler{router: router})
-	h.Handle("/ws", &wsHandler{router: router})
+	// h.Handle("/ws", &wsHandler{router: router})
 
 	response := SimpleMsg("Hello")
 	router.HandleFunc("/go", func(c *Conn, m *Request) {
@@ -123,12 +125,78 @@ func TestRequestResponse(t *testing.T) {
 		assert.Equal(t, string(res), `{"message":"Hello"}`)
 	})
 
-	t.Run("OverWebsocket", func(t *testing.T) {
-		client := NewClient()
-		req, err := NewRequest("GET", domain+"/ws/go", nil)
+}
+
+type Simpleobj struct {
+	Stringer string
+	Integer  int
+	Floater  float64
+}
+
+func TestWebsocketConnection(t *testing.T) {
+	router := NewRouter()
+	// domain := "ws://localhost:14555/ws"
+	// logrus.SetLevel(logrus.DebugLevel)
+	h := http.NewServeMux()
+	h.Handle("/", &wsHandler{router: router})
+
+	server := httptest.NewServer(h)
+	domain := strings.ReplaceAll(server.URL, "http", "ws")
+
+	// l, err := net.Listen("tcp4", "localhost:14555")
+	// if err != nil {
+	// 	logrus.Fatal(err)
+	// }
+
+	// go func() {
+	// 	logrus.Fatal(http.Serve(l, h))
+	// }()
+
+	router.HandleFunc("/hello", func(c *Conn, m *Request) {
+		t.Log("Responding...")
+		c.Respond(m, SimpleMsg("Hello"), http.StatusOK)
+	})
+
+	restobject := &Simpleobj{}
+	restlock := &sync.RWMutex{}
+	router.HandleFunc("/object", func(c *Conn, m *Request) {
+		restlock.Lock()
+		defer restlock.Unlock()
+		//Handling Restfull
+		if restobject == nil {
+			c.Respond(m, SimpleMsg("Not found"), http.StatusNotFound)
+			return
+		}
+
+		if m.Method == "DELETE" {
+			//Return current one
+			c.Respond(m, restobject, http.StatusOK)
+			restobject = nil
+			return
+		}
+
+		if m.Method == "POST" || m.Method == "PUT" {
+			newobj := Simpleobj{}
+			if err := m.UnmarshalData(&newobj); err != nil {
+				c.Respond(m, SimpleMsg("Bad data"), http.StatusBadRequest)
+				return
+			}
+
+			restobject = &newobj
+		}
+
+		c.Respond(m, restobject, http.StatusOK)
+		t.Log("Responding...")
+		c.Respond(m, SimpleMsg("Hello"), http.StatusOK)
+	})
+
+	client, err := Dial(domain, nil)
+	require.Nil(t, err)
+
+	t.Run("SimpleMessage", func(t *testing.T) {
+		req, err := NewRequest("GET", "/hello", nil)
 		require.Nil(t, err)
 
-		// req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		require.Nil(t, err)
 
@@ -139,13 +207,37 @@ func TestRequestResponse(t *testing.T) {
 		assert.Equal(t, string(res), `{"message":"Hello"}`)
 	})
 
-	// decode := json.NewDecoder(resp.Body)
+	t.Run("RESTful", func(t *testing.T) {
+		postobject := Simpleobj{
+			Stringer: "My new string",
+			Integer:  10,
+			Floater:  1.13,
+		}
 
-	// out := SimpleMessage{}
-	// err = decode.Decode(&out)
-	// require.Nil(t, err)
+		//Create object
+		resp, err := client.Post("/object", postobject)
+		require.Nil(t, err)
+		require.Equal(t, resp.Code, http.StatusOK)
 
-	// assert.Equal(t, out, response)
+		expected := postobject
+		err = resp.UnmarshalData(&expected)
+		require.Nil(t, err)
+		assert.Equal(t, expected, postobject)
 
-	//Make websocket call
+		//Get object
+		resp, err = client.Get("/object", nil)
+		require.Nil(t, err)
+		require.Equal(t, resp.Code, http.StatusOK)
+		assert.Equal(t, expected, postobject)
+
+		//Delete object
+		resp, err = client.Delete("/object", nil)
+		require.Nil(t, err)
+		require.Equal(t, resp.Code, http.StatusOK)
+
+		//Object should not be found
+		resp, err = client.Get("/object", nil)
+		require.Nil(t, err)
+		require.Equal(t, resp.Code, http.StatusNotFound)
+	})
 }

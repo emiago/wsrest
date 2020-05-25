@@ -24,7 +24,7 @@ type Client struct {
 	closed         chan struct{}
 }
 
-func NewClient() *Client {
+func Dial(wsurl string, eventHandler ReadHandler) (*Client, error) {
 	c := &Client{
 		conn:           nil,
 		RequestTimeout: time.Second * 10,
@@ -33,14 +33,14 @@ func NewClient() *Client {
 
 	logger := logrus.New()
 	c.log = logger.WithFields(logrus.Fields{})
-	return c
+	return c, c.connect(wsurl, eventHandler)
 }
 
 func (c *Client) SetLog(l *logrus.Entry) {
 	c.log = l
 }
 
-func (c *Client) Connect(wsurl string, eventHandler ReadHandler) error {
+func (c *Client) connect(wsurl string, eventHandler ReadHandler) error {
 	u, err := url.Parse(wsurl)
 	if err != nil {
 		return err
@@ -55,6 +55,11 @@ func (c *Client) Connect(wsurl string, eventHandler ReadHandler) error {
 
 	c.conn = conn
 	c.closed = make(chan struct{})
+
+	if eventHandler == nil {
+		eventHandler = func(d []byte) { return }
+	}
+
 	go c.readMessage(eventHandler)
 	return nil
 	// defer conn.Close()
@@ -213,4 +218,12 @@ func (c *Client) Get(resource string, data interface{}) (*Request, error) {
 
 func (c *Client) Post(resource string, data interface{}) (*Request, error) {
 	return c.Execute("POST", resource, data)
+}
+
+func (c *Client) Put(resource string, data interface{}) (*Request, error) {
+	return c.Execute("PUT", resource, data)
+}
+
+func (c *Client) Delete(resource string, data interface{}) (*Request, error) {
+	return c.Execute("DELETE", resource, data)
 }

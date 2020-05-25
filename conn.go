@@ -193,7 +193,7 @@ func (wsc *Conn) WriteWS(data []byte) error {
 	return nil
 }
 
-func (wsc *Conn) Respond(m *Request, response interface{}, status HttpCode) {
+func (wsc *Conn) Respond(m *Request, response interface{}, status int) {
 	wsc.Log.WithFields(logrus.Fields{
 		"requestid": m.RequestId,
 		"code":      status,
@@ -231,7 +231,7 @@ func (wsc *Conn) Respond(m *Request, response interface{}, status HttpCode) {
 }
 
 //This should be used when there are multiple responses on same  request
-func (wsc *Conn) RespondMultiple(m *Request, response interface{}, status HttpCode) {
+func (wsc *Conn) RespondMultiple(m *Request, response interface{}, status int) {
 	mcopy := *m
 	wsc.Respond(&mcopy, response, status)
 }
