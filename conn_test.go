@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
 // type WSWritter struct {
@@ -90,7 +91,20 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn.HandleWSConnection()
 }
 
-func TestRequestResponse(t *testing.T) {
+type Simpleobj struct {
+	Stringer string
+	Integer  int
+	Floater  float64
+}
+
+type SuiteRestRequestResponse struct {
+	suite.Suite
+	Router *FastRouter
+	Domain string
+}
+
+func (suite *SuiteRestRequestResponse) SetupTest() {
+	t := suite.T()
 	router := NewRouter()
 	logrus.SetLevel(logrus.DebugLevel)
 
@@ -107,50 +121,46 @@ func TestRequestResponse(t *testing.T) {
 	server := httptest.NewServer(h)
 	domain := server.URL
 
-	t.Run("StandardHTTP", func(t *testing.T) {
-		client := &http.Client{}
-		req, err := http.NewRequest("GET", domain+"/go", nil)
-		require.Nil(t, err)
-
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		require.Nil(t, err)
-
-		require.Equal(t, resp.StatusCode, http.StatusOK)
-
-		res, err := ioutil.ReadAll(resp.Body)
-		defer resp.Body.Close()
-		require.Nil(t, err)
-		t.Log("Result", string(res))
-		assert.Equal(t, string(res), `{"message":"Hello"}`)
-	})
-
+	suite.Router = router
+	suite.Domain = domain
 }
 
-type Simpleobj struct {
-	Stringer string
-	Integer  int
-	Floater  float64
+func (suite *SuiteRestRequestResponse) TestHelloSimpleMessage() {
+	t := suite.T()
+	domain := suite.Domain
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", domain+"/go", nil)
+	require.Nil(t, err)
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	require.Nil(t, err)
+
+	require.Equal(t, resp.StatusCode, http.StatusOK)
+
+	res, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	require.Nil(t, err)
+	t.Log("Result", string(res))
+	assert.Equal(t, string(res), `{"message":"Hello"}`)
 }
 
-func TestWebsocketConnection(t *testing.T) {
+type SuiteWebsocketRequestResponse struct {
+	suite.Suite
+	Router *FastRouter
+	Client *Client
+}
+
+func (suite *SuiteWebsocketRequestResponse) SetupTest() {
+	t := suite.T()
 	router := NewRouter()
-	// domain := "ws://localhost:14555/ws"
-	// logrus.SetLevel(logrus.DebugLevel)
+
 	h := http.NewServeMux()
 	h.Handle("/", &wsHandler{router: router})
 
 	server := httptest.NewServer(h)
 	domain := strings.ReplaceAll(server.URL, "http", "ws")
-
-	// l, err := net.Listen("tcp4", "localhost:14555")
-	// if err != nil {
-	// 	logrus.Fatal(err)
-	// }
-
-	// go func() {
-	// 	logrus.Fatal(http.Serve(l, h))
-	// }()
 
 	router.HandleFunc("/hello", func(c *Conn, m *Request) {
 		t.Log("Responding...")
@@ -193,51 +203,68 @@ func TestWebsocketConnection(t *testing.T) {
 	client, err := Dial(domain, nil)
 	require.Nil(t, err)
 
-	t.Run("SimpleMessage", func(t *testing.T) {
-		req, err := NewRequest("GET", "/hello", nil)
-		require.Nil(t, err)
+	suite.Router = router
+	suite.Client = client
+}
 
-		resp, err := client.Do(req)
-		require.Nil(t, err)
+func (suite *SuiteWebsocketRequestResponse) TestHelloMessage() {
+	t := suite.T()
+	client := suite.Client
 
-		require.Equal(t, resp.Code, http.StatusOK)
+	req, err := NewRequest("GET", "/hello", nil)
+	require.Nil(t, err)
 
-		res := resp.Data
-		t.Log("Result", string(res))
-		assert.Equal(t, string(res), `{"message":"Hello"}`)
-	})
+	resp, err := client.Do(req)
+	require.Nil(t, err)
 
-	t.Run("RESTful", func(t *testing.T) {
-		postobject := Simpleobj{
-			Stringer: "My new string",
-			Integer:  10,
-			Floater:  1.13,
-		}
+	require.Equal(t, resp.Code, http.StatusOK)
 
-		//Create object
-		resp, err := client.Post("/object", postobject)
-		require.Nil(t, err)
-		require.Equal(t, resp.Code, http.StatusOK)
+	res := resp.Data
+	t.Log("Result", string(res))
+	assert.Equal(t, string(res), `{"message":"Hello"}`)
+}
 
-		expected := postobject
-		err = resp.UnmarshalData(&expected)
-		require.Nil(t, err)
-		assert.Equal(t, expected, postobject)
+func (suite *SuiteWebsocketRequestResponse) TestRESTrequests() {
+	t := suite.T()
+	client := suite.Client
 
-		//Get object
-		resp, err = client.Get("/object", nil)
-		require.Nil(t, err)
-		require.Equal(t, resp.Code, http.StatusOK)
-		assert.Equal(t, expected, postobject)
+	postobject := Simpleobj{
+		Stringer: "My new string",
+		Integer:  10,
+		Floater:  1.13,
+	}
 
-		//Delete object
-		resp, err = client.Delete("/object", nil)
-		require.Nil(t, err)
-		require.Equal(t, resp.Code, http.StatusOK)
+	//Create object
+	resp, err := client.Post("/object", postobject)
+	require.Nil(t, err)
+	require.Equal(t, resp.Code, http.StatusOK)
 
-		//Object should not be found
-		resp, err = client.Get("/object", nil)
-		require.Nil(t, err)
-		require.Equal(t, resp.Code, http.StatusNotFound)
-	})
+	expected := postobject
+	err = resp.UnmarshalData(&expected)
+	require.Nil(t, err)
+	assert.Equal(t, expected, postobject)
+
+	//Get object
+	resp, err = client.Get("/object", nil)
+	require.Nil(t, err)
+	require.Equal(t, resp.Code, http.StatusOK)
+	assert.Equal(t, expected, postobject)
+
+	//Delete object
+	resp, err = client.Delete("/object", nil)
+	require.Nil(t, err)
+	require.Equal(t, resp.Code, http.StatusOK)
+
+	//Object should not be found
+	resp, err = client.Get("/object", nil)
+	require.Nil(t, err)
+	require.Equal(t, resp.Code, http.StatusNotFound)
+}
+
+func TestRESTRequestResponse(t *testing.T) {
+	suite.Run(t, new(SuiteRestRequestResponse))
+}
+
+func TestWebsocketRequestResponse(t *testing.T) {
+	suite.Run(t, new(SuiteWebsocketRequestResponse))
 }

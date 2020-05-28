@@ -97,8 +97,6 @@ func NewConnWS(w http.ResponseWriter, r *http.Request, router Router) (*Conn, er
 		"conn": fmt.Sprintf("WSCONN[%s]", wsc.GetRemoteAddr()),
 	})
 
-	wsc.Log.WithField("router", router).Info("Registering routers")
-
 	return wsc, nil
 }
 

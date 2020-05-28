@@ -2,10 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/http"
-	"time"
 
 	"wsrest"
 
@@ -18,6 +16,8 @@ var upgrader = websocket.Upgrader{}
 
 func wsServerStart(address string, port int) {
 	router = wsrest.NewRouter()
+
+	//Dump all routes from our router
 	router.HandleFunc("/help", func(wsc *wsrest.Conn, m *wsrest.Request) {
 		wsc.Respond(m, wsrest.SimpleMsg(router.String()), http.StatusOK)
 	})
@@ -26,24 +26,14 @@ func wsServerStart(address string, port int) {
 	mux.HandleFunc("/", restHandler)
 	mux.HandleFunc("/ws", wsHandler)
 
-	pipe := logrus.StandardLogger().Writer()
-	defer pipe.Close()
-	s := &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", address, port),
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 300 * time.Second,
-		ErrorLog:     log.New(pipe, "", 0),
-	}
-
 	//To listen on tcp4
 	l, err := net.Listen("tcp4", fmt.Sprintf("%s:%d", address, port))
 	if err != nil {
 		logrus.Fatal(err)
 	}
 
-	logrus.WithField("addr", s.Addr).Info("Server listening")
-	logrus.Fatal(s.Serve(l))
+	logrus.WithField("addr", address).Info("Server listening")
+	logrus.Fatal(http.Serve(l, mux))
 }
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
