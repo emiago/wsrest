@@ -1,4 +1,4 @@
-package ws
+package pubsub
 
 import (
 	"fmt"

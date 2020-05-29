@@ -1,4 +1,4 @@
-package ws
+package pubsub
 
 import "time"
 
@@ -7,28 +7,28 @@ type Eventer interface {
 	SetType(t string)
 	GetApplication() string
 	SetApplication(t string)
-	GetSource() string
-	SetSource(t string)
-	GetSourceId() string
-	SetSourceId(t string)
+	GetTopic() string
+	SetTopic(t string)
+	GetTopicId() string
+	SetTopicId(t string)
 }
 
 type Event struct {
 	Type        string `json:"type"`
 	Application string `json:"application"`
-	Source      string `json:"source"`
-	SourceId    string `json:"source_id"`
+	Topic       string `json:"topic"`
+	TopicId     string `json:"topic_id"`
 	Timestamp   *Time  `json:"timestamp"`
 }
 
-func NewEvent(t string, source string, sourceid string, app string) Event {
+func NewEvent(t string, Topic string, Topicid string, app string) Event {
 	time := Time(time.Now())
 
 	return Event{
 		Type:        t,
 		Application: app,
-		Source:      source,
-		SourceId:    sourceid,
+		Topic:       Topic,
+		TopicId:     Topicid,
 		Timestamp:   &time,
 	}
 }
@@ -49,18 +49,18 @@ func (p *Event) SetApplication(t string) {
 	p.Application = t
 }
 
-func (p *Event) GetSource() string {
-	return p.Source
+func (p *Event) GetTopic() string {
+	return p.Topic
 }
 
-func (p *Event) SetSource(t string) {
-	p.Source = t
+func (p *Event) SetTopic(t string) {
+	p.Topic = t
 }
 
-func (p *Event) GetSourceId() string {
-	return p.SourceId
+func (p *Event) GetTopicId() string {
+	return p.TopicId
 }
 
-func (p *Event) SetSourceId(t string) {
-	p.SourceId = t
+func (p *Event) SetTopicId(t string) {
+	p.TopicId = t
 }
