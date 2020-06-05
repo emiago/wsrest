@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"sync"
 	"time"
+	"wsrest/datastream"
 
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
@@ -19,9 +20,11 @@ type Client struct {
 	conn           *websocket.Conn
 	callbacks      map[string]chan *Request
 	RequestTimeout time.Duration
-	log            *logrus.Entry
+	log            logrus.StdLogger
 	fnServerClose  ServerCloseHandler
 	closed         chan struct{}
+	Marshaler      datastream.Marshaler
+	MessageType    int
 }
 
 func Dial(wsurl string, eventHandler ReadHandler) (*Client, error) {
@@ -29,14 +32,15 @@ func Dial(wsurl string, eventHandler ReadHandler) (*Client, error) {
 		conn:           nil,
 		RequestTimeout: time.Second * 10,
 		callbacks:      make(map[string]chan *Request),
+		log:            logrus.New(),
+		Marshaler:      &datastream.JSONMarshaler{},
+		MessageType:    websocket.TextMessage,
 	}
 
-	logger := logrus.New()
-	c.log = logger.WithFields(logrus.Fields{})
 	return c, c.connect(wsurl, eventHandler)
 }
 
-func (c *Client) SetLog(l *logrus.Entry) {
+func (c *Client) SetLog(l logrus.StdLogger) {
 	c.log = l
 }
 
@@ -45,8 +49,6 @@ func (c *Client) connect(wsurl string, eventHandler ReadHandler) error {
 	if err != nil {
 		return err
 	}
-
-	c.log.Debugf("connecting to %s", u.String())
 
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
@@ -72,12 +74,12 @@ func (c *Client) Close() {
 
 	err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	if err != nil {
-		c.log.Error("write close:", err)
+		c.log.Printf("write close: %s\n0", err)
 		return
 	}
 	c.mutex.Unlock()
 
-	c.log.Debug(" closing connection")
+	c.log.Println("Closing connection")
 	select {
 	case <-c.closed:
 	case <-time.After(time.Second):
@@ -99,7 +101,7 @@ func (c *Client) readMessage(readh ReadHandler) {
 		close(c.closed)
 		if closeErr != nil {
 			if !websocket.IsCloseError(closeErr, websocket.CloseNormalClosure) {
-				c.log.Errorf("Reading stopped. err=%s", closeErr)
+				c.log.Printf("Reading stopped. err=%s\n", closeErr)
 			}
 
 			c.mutex.RLock()
@@ -120,28 +122,26 @@ func (c *Client) readMessage(readh ReadHandler) {
 		}
 
 		if len(message) == 0 {
-			c.log.Errorf("received empty message")
+			c.log.Println("received empty message")
 			continue
 		}
-		c.log.Debugf(" received msg %s", message)
 
 		m := &Request{}
 		err = json.Unmarshal(message, m)
 
 		if _, ok := err.(*json.UnmarshalTypeError); err != nil && !ok {
-			c.log.Errorf("UnmarshalTypeError err %s", err)
+			c.log.Printf("UnmarshalTypeError err=%s\n", err)
 			continue
 		}
 
 		if err == nil {
-			if callback, exists := c.getRequestCallback(m.RequestId); exists {
+			if callback, exists := c.getRequestCallback(m.GetUID()); exists {
 				callback <- m
-				c.removeRequestCallback(m.RequestId)
+				c.removeRequestCallback(m.GetUID())
 				continue
 			}
 		}
 
-		c.log.Debugf("Calling readhandler")
 		readh(message)
 	}
 }
@@ -168,7 +168,7 @@ func (c *Client) removeRequestCallback(RequestId string) bool {
 }
 
 func (c *Client) exec(cr *Request) error {
-	data, err := json.Marshal(*cr)
+	data, err := c.Marshaler.Marshal(cr)
 	if err != nil {
 		return err
 	}
@@ -181,17 +181,17 @@ func (c *Client) exec(cr *Request) error {
 		return fmt.Errorf("No available websocket connection")
 	}
 
-	err = c.conn.WriteMessage(websocket.TextMessage, data)
+	err = c.conn.WriteMessage(c.MessageType, data)
 	return err
 }
 
 func (c *Client) Do(m *Request) (*Request, error) {
 	syncer := make(chan *Request)
-	c.addRequestCallback(m.RequestId, syncer)
+	c.addRequestCallback(m.GetUID(), syncer)
 
 	err := c.exec(m)
 	if err != nil {
-		c.removeRequestCallback(m.RequestId)
+		c.removeRequestCallback(m.GetUID())
 		return nil, err
 	}
 
@@ -199,7 +199,7 @@ func (c *Client) Do(m *Request) (*Request, error) {
 	case res := <-syncer:
 		return res, nil
 	case <-time.After(c.RequestTimeout):
-		c.removeRequestCallback(m.RequestId)
+		c.removeRequestCallback(m.GetUID())
 		return nil, fmt.Errorf("Timeout occured")
 	}
 }

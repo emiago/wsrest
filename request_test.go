@@ -69,15 +69,16 @@ func TestRequestSetData(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("Marshal", func(t *testing.T) {
-		err := m.MarshalData(testdata)
+		d, err := json.Marshal(testdata)
 		require.Nil(t, err)
+		m.SetData(d)
 
 		assert.Equal(t, marshaled, m.Data, "Marshaling not equal")
 	})
 
 	t.Run("Unmarshal", func(t *testing.T) {
 		out := dummyJSON{}
-		err := m.UnmarshalData(&out)
+		err := json.Unmarshal(marshaled, &out)
 		require.Nil(t, err)
 
 		assert.Equal(t, testdata, out, "Unmarshaling not equal")

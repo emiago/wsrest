@@ -10,18 +10,22 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
-type Messenger interface {
+type IRequest interface {
+	GetUID() string
 	GetMethod() string
 	GetResource() string
+	GetData() []byte
+	SetData([]byte)
 	SetCode(int)
+	GetCode() int
 }
 
 type Request struct {
-	RequestId string `json:"requestid"`
-	Method    string `json:"method"`
-	Resource  string `json:"resource"`
-	Code      int    `json:"code"`
-	Data      []byte `json:"data,ommitempty"`
+	UID      string `json:"uid"`
+	Method   string `json:"m"`
+	Resource string `json:"r"`
+	Code     int    `json:"c"`
+	Data     []byte `json:"d,ommitempty"`
 }
 
 func NewRequest(method string, resource string, data interface{}) (*Request, error) {
@@ -45,10 +49,10 @@ func NewRequest(method string, resource string, data interface{}) (*Request, err
 	}
 
 	cr := &Request{
-		RequestId: uuid.NewV4().String(),
-		Method:    method,
-		Resource:  resource,
-		Data:      jsond,
+		UID:      uuid.NewV4().String(),
+		Method:   method,
+		Resource: resource,
+		Data:     jsond,
 	}
 
 	return cr, nil
@@ -85,6 +89,10 @@ func SimpleMsg(m string, args ...interface{}) SimpleMessage {
 	}
 }
 
+func (cr *Request) GetUID() string {
+	return cr.Method
+}
+
 func (cr *Request) GetMethod() string {
 	return cr.Method
 }
@@ -113,31 +121,10 @@ func (cr *Request) SetCode(c int) {
 	cr.Code = c
 }
 
-func (cr *Request) MarshalData(data interface{}) error {
-	d, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
+func (cr *Request) GetData() []byte {
+	return cr.Data
+}
+
+func (cr *Request) SetData(d []byte) {
 	cr.Data = d
-	return nil
-}
-
-func (cr *Request) UnmarshalData(v interface{}) error {
-	if cr.Data == nil {
-		return fmt.Errorf("Trying to unmarshal emtpy data")
-	}
-
-	return json.Unmarshal(cr.Data, v)
-}
-
-func (cr *Request) DataToString() string {
-	defer func() {
-		recover()
-	}()
-
-	var s *string = nil
-	if err := json.Unmarshal(cr.Data, &s); err != nil {
-		return string(cr.Data)
-	}
-	return *s
 }

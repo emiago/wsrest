@@ -1,20 +1,10 @@
 package pubsub
 
 import (
-	"encoding/json"
+	"wsrest/datastream"
 
 	"github.com/sirupsen/logrus"
 )
-
-type Marshaler interface {
-	Marshal(v interface{}) ([]byte, error)
-}
-
-type JSONMarshaler struct{}
-
-func (m *JSONMarshaler) Marshal(v interface{}) ([]byte, error) {
-	return json.Marshal(v)
-}
 
 type Option interface{}
 type OptionDoAsync struct{}
@@ -29,8 +19,8 @@ type PubSub struct {
 	subscribers map[string]*Subscriber
 	topics      map[string][]*Subscriber
 	recv        chan Eventer
-	marshaler   Marshaler
-	log         logrus.FieldLogger
+	marshaler   datastream.Marshaler
+	log         logrus.StdLogger
 }
 
 func NewPubSub() *PubSub {
@@ -38,15 +28,15 @@ func NewPubSub() *PubSub {
 		recv:        make(chan Eventer, 100),
 		topics:      make(map[string][]*Subscriber),
 		subscribers: make(map[string]*Subscriber),
-		marshaler:   &JSONMarshaler{},
-		log:         logrus.StandardLogger(),
+		marshaler:   &datastream.JSONMarshaler{},
+		log:         logrus.New(),
 	}
 
 	go p.listen()
 	return p
 }
 
-func (p *PubSub) SetMarshaler(m Marshaler) {
+func (p *PubSub) SetMarshaler(m datastream.Marshaler) {
 	p.marshaler = m
 }
 
@@ -91,11 +81,6 @@ func (p *PubSub) listen() {
 }
 
 func (p *PubSub) processEvent(e Eventer) {
-	p.log.WithFields(logrus.Fields{
-		"Type":  e.GetType(),
-		"Topic": e.GetTopic(),
-	}).Debug("Got event")
-
 	if e.GetType() == "Subscribe" {
 		m := e.(*eventSubAction)
 		p.subscribe(m.Subscriber)
@@ -116,13 +101,13 @@ func (p *PubSub) processEvent(e Eventer) {
 func (p *PubSub) handleEvent(e Eventer) {
 	subs := p.findTopicSubscribers(e.GetTopic())
 	if len(subs) == 0 {
-		p.log.WithField("topic", e.GetTopic()).Debug("No subscribers for topic")
+		p.log.Printf("No subscribers for topic=%s\n", e.GetTopic())
 		return
 	}
 
 	data, err := p.marshaler.Marshal(e)
 	if err != nil {
-		p.log.WithError(err).Error("Fail to marshal event")
+		p.log.Printf("Fail to marshal event err=%s\n", err)
 		return
 	}
 

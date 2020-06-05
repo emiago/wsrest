@@ -1,6 +1,7 @@
 package wsrest
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -187,7 +188,7 @@ func (suite *SuiteWebsocketRequestResponse) SetupTest() {
 
 		if m.Method == "POST" || m.Method == "PUT" {
 			newobj := Simpleobj{}
-			if err := m.UnmarshalData(&newobj); err != nil {
+			if err := json.Unmarshal(m.GetData(), &newobj); err != nil {
 				c.Respond(m, SimpleMsg("Bad data"), http.StatusBadRequest)
 				return
 			}
@@ -240,7 +241,7 @@ func (suite *SuiteWebsocketRequestResponse) TestRESTrequests() {
 	require.Equal(t, resp.Code, http.StatusOK)
 
 	expected := postobject
-	err = resp.UnmarshalData(&expected)
+	err = json.Unmarshal(resp.GetData(), &expected)
 	require.Nil(t, err)
 	assert.Equal(t, expected, postobject)
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"wsrest/datastream"
 
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
@@ -42,8 +43,9 @@ type Conn struct {
 	Vars           map[string]interface{}
 	Closed         bool
 	MaxMessageSize int64
-	Log            logrus.FieldLogger
+	Log            logrus.StdLogger
 	CloseHandlers  []ConnCloseHandlerFn
+	marshaler      datastream.Marshaler
 }
 
 func (wsc *Conn) Lock() {
@@ -78,6 +80,7 @@ func constructConn() *Conn {
 		Vars:           make(map[string]interface{}),
 		MaxMessageSize: 102400,
 		Router:         NewRouter(),
+		marshaler:      &datastream.JSONMarshaler{},
 	}
 
 	return wsc
@@ -93,7 +96,7 @@ func NewConnWS(w http.ResponseWriter, r *http.Request, router Router) (*Conn, er
 	wsc.C = u
 	wsc.Router = router
 
-	wsc.Log = logrus.WithFields(logrus.Fields{
+	wsc.Log = logrus.New().WithFields(logrus.Fields{
 		"conn": fmt.Sprintf("WSCONN[%s]", wsc.GetRemoteAddr()),
 	})
 
@@ -106,7 +109,7 @@ func NewConnRest(w http.ResponseWriter, r *http.Request, router Router) (*Conn, 
 	wsc.R = r
 	wsc.Router = router
 
-	wsc.Log = logrus.WithFields(logrus.Fields{
+	wsc.Log = logrus.New().WithFields(logrus.Fields{
 		"conn": fmt.Sprintf("RESTCONN[%s]", wsc.GetRemoteAddr()),
 	})
 
@@ -123,7 +126,8 @@ func (wsc *Conn) HandleRestConnection() {
 
 	m, err := ParseHttpRequest(r)
 	if err != nil {
-		wsc.Log.Error("Failed to parse request")
+		wsc.Log.Printf("Failed to parse request err=%s\n", err)
+		return
 	}
 
 	route, found := wsc.Router.Match(m.GetPath(), m.GetMethod())
@@ -192,27 +196,25 @@ func (wsc *Conn) WriteWS(data []byte) error {
 }
 
 func (wsc *Conn) Respond(m *Request, response interface{}, status int) {
-	wsc.Log.WithFields(logrus.Fields{
-		"requestid": m.RequestId,
-		"code":      status,
-	}).Debug("Responding  request")
 	m.SetCode(status)
 
-	if err := m.MarshalData(response); err != nil {
-		wsc.Log.WithError(err).Error("Failed to marshal response")
+	rdata, err := wsc.marshaler.Marshal(response)
+	if err != nil {
+		wsc.Log.Printf("Failed to marshal response uid=%s err=%s\n", m.GetUID(), err)
 		return
 	}
+	m.SetData(rdata)
 
 	if wsc.C != nil {
-		mjson, jerr := json.Marshal(m)
-		if jerr != nil {
-			wsc.Log.WithError(jerr).Error("Failed to marshal request")
+		rdata, err := wsc.marshaler.Marshal(m)
+		if err != nil {
+			wsc.Log.Printf("Failed to marshal request uid=%s err=%s\n", m.GetUID(), err)
 			return
 		}
 
 		//This will responded by write pump, WE CAN NOT HAVE CONCURENT WRITES
-		if err := wsc.WriteWS(mjson); err != nil {
-			wsc.Log.Errorf("Connection is closed. Failed to response request %s", m.RequestId)
+		if err := wsc.WriteWS(rdata); err != nil {
+			wsc.Log.Printf("Connection is closed. Failed to response request uid=%s err=%s\n", m.GetUID(), err)
 		}
 		return
 	}
@@ -222,8 +224,8 @@ func (wsc *Conn) Respond(m *Request, response interface{}, status int) {
 	}
 
 	wsc.W.WriteHeader(int(status))
-	if _, err := wsc.W.Write(m.Data); err != nil {
-		wsc.Log.Errorf(" err: %s", err)
+	if _, err := wsc.W.Write(rdata); err != nil {
+		wsc.Log.Printf("err: %s\n", err)
 		return
 	}
 }
@@ -248,13 +250,13 @@ func (wsc *Conn) Close() {
 	wsc.C.Close()
 	wsc.Unlock()
 	wsc.RunCloseHandlers()
-	wsc.Log.Debugf("Connection is closed")
+	wsc.Log.Println("Connection is closed")
 }
 
 func (wsc *Conn) readPump() {
 	defer func() {
 		// Before we exit we need to shutdown and write pump channel. Write pump channel should then stopp all seneders
-		wsc.Log.Debugf("Read pump closed. Closing send channel....")
+		wsc.Log.Println("Read routine closed. Closing send channel....")
 		close(wsc.StopCh) //Close senders
 		// close(wsc.sendCh) //Close write pump
 	}()
@@ -264,22 +266,19 @@ func (wsc *Conn) readPump() {
 	for {
 		_, message, err := wsc.C.ReadMessage()
 		if err != nil {
-			wsc.Log.WithField("err", err).Info("closed upon trying to read message. Exiting ...")
+			wsc.Log.Printf("closed upon trying to read message. err=%s Exiting ...\n", err)
 			break
 		}
 
 		m := &Request{}
 		if err := json.Unmarshal(message, m); err != nil {
-			wsc.Log.WithField("err", err).Error("Unmarshal request failed")
+			wsc.Log.Printf("Unmarshal request failed. err=%s\n", err)
 			continue
 		}
 
 		path := m.GetPath()
 		method := m.GetMethod()
-		wsc.Log.WithFields(logrus.Fields{
-			"path":   path,
-			"method": method,
-		}).Debug("Mathing request")
+		wsc.Log.Printf("Mathing request. path=%s method=%s\n", path, method)
 
 		route, found := wsc.Router.Match(path, method)
 		if !found {
@@ -297,10 +296,10 @@ func (wsc *Conn) writePump() {
 	defer func() {
 		ticker.Stop()
 		wsc.C.Close()
-		wsc.Log.Debugf("Write pump closed.")
+		wsc.Log.Println("Write routine closed.")
 	}()
 
-	wsc.Log.Debugf("Write pump started")
+	wsc.Log.Println("Write routine started")
 	for {
 		select {
 		case <-wsc.StopCh:
@@ -311,13 +310,13 @@ func (wsc *Conn) writePump() {
 			wsc.C.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// The hub closed the channel.
-				wsc.Log.Infof("Send channel is closed, trying to notify ")
+				wsc.Log.Println("Send channel is closed, trying to notify ")
 				wsc.C.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
 			if err := wsc.C.WriteMessage(websocket.TextMessage, message); err != nil {
-				wsc.Log.Errorf("Write err , exiting. err = %s", err)
+				wsc.Log.Printf("Write err , exiting. err = %s\n", err)
 				return
 			}
 
