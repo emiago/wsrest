@@ -21,11 +21,11 @@ type IRequest interface {
 }
 
 type Request struct {
-	UID      string `json:"uid"`
-	Method   string `json:"m"`
-	Resource string `json:"r"`
-	Code     int    `json:"c"`
-	Data     []byte `json:"d,ommitempty"`
+	UID      string           `json:"uid"`
+	Method   string           `json:"m"`
+	Resource string           `json:"r"`
+	Code     int              `json:"c"`
+	Data     *json.RawMessage `json:"d"`
 }
 
 func NewRequest(method string, resource string, data interface{}) (*Request, error) {
@@ -48,11 +48,13 @@ func NewRequest(method string, resource string, data interface{}) (*Request, err
 
 	}
 
+	raw := json.RawMessage(jsond)
+
 	cr := &Request{
 		UID:      uuid.NewV4().String(),
 		Method:   method,
 		Resource: resource,
-		Data:     jsond,
+		Data:     &raw,
 	}
 
 	return cr, nil
@@ -60,6 +62,7 @@ func NewRequest(method string, resource string, data interface{}) (*Request, err
 
 func ParseHttpRequest(r *http.Request) (*Request, error) {
 	data := json.RawMessage{}
+	// var data []byte
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&data); err != nil && err != io.EOF {
 		return nil, err
@@ -69,7 +72,7 @@ func ParseHttpRequest(r *http.Request) (*Request, error) {
 	m := &Request{
 		Method:   r.Method,
 		Resource: r.RequestURI,
-		Data:     data,
+		Data:     &data,
 	}
 
 	return m, nil
@@ -122,9 +125,14 @@ func (cr *Request) SetCode(c int) {
 }
 
 func (cr *Request) GetData() []byte {
-	return cr.Data
-}
+	if cr.Data == nil {
+		return []byte{}
+	}
+
+	return *cr.Data
+} 
 
 func (cr *Request) SetData(d []byte) {
-	cr.Data = d
+	p := json.RawMessage(d)
+	cr.Data = &p
 }

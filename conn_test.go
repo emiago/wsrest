@@ -220,7 +220,7 @@ func (suite *SuiteWebsocketRequestResponse) TestHelloMessage() {
 
 	require.Equal(t, resp.Code, http.StatusOK)
 
-	res := resp.Data
+	res := resp.GetData()
 	t.Log("Result", string(res))
 	assert.Equal(t, string(res), `{"message":"Hello"}`)
 }

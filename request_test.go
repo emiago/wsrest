@@ -73,7 +73,7 @@ func TestRequestSetData(t *testing.T) {
 		require.Nil(t, err)
 		m.SetData(d)
 
-		assert.Equal(t, marshaled, m.Data, "Marshaling not equal")
+		assert.Equal(t, marshaled, m.GetData(), "Marshaling not equal")
 	})
 
 	t.Run("Unmarshal", func(t *testing.T) {
